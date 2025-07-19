@@ -27,7 +27,8 @@ if st.button("Search"):
                     for item in results:
                         st.markdown(f"##### [{item['text']}]({item['metadata']['url']})")
                         st.markdown(f"Year: {item['metadata']['year']}")
-                        st.markdown(f"Authors: {item['metadata']['authors']}")
+                        authors = [author["name"] for author in item["metadata"]["authors"]]
+                        st.markdown(f"Authors: {', '.join(authors)}")
                         st.markdown(f"Abstract: {item['metadata']['abstract']}")
                         st.caption(f"Score: `{item["score"]}`")
                         st.markdown("---")
