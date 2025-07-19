@@ -4,7 +4,7 @@ from elasticsearch import Elasticsearch
 from sentence_transformers import SentenceTransformer
 
 class TextEmbeddingIndexer:
-    def __init__(self, es_host="http://localhost:9200", index_name="text_embeddings", model_name="all-MiniLM-L6-v2"):
+    def __init__(self, es_host="http://localhost:9200", index_name="semantic_scholar", model_name="all-MiniLM-L6-v2"):
         """
         Initialize the TextEmbeddingIndexer.
         
@@ -88,49 +88,49 @@ class TextEmbeddingIndexer:
         
         return response["_id"]
     
-    def bulk_index(self, texts, ids=None, metadata_list=None):
+    def bulk_index(self, datas):
         """
         Index multiple documents in bulk.
         
         Args:
-            texts (list): List of texts to embed and index
-            ids (list, optional): List of document IDs
-            metadata_list (list, optional): List of metadata dictionaries
+            datas (list): List of datas to embed and index
             
         Returns:
             list: List of document IDs
         """
-        if ids is None:
-            ids = [None] * len(texts)
-        
-        if metadata_list is None:
-            metadata_list = [{}] * len(texts)
-        
         doc_ids = []
         
         # Process in batches to avoid memory issues with large datasets
         batch_size = 100
-        for i in tqdm(range(0, len(texts), batch_size), desc="Indexing batches"):
-            batch_texts = texts[i:i + batch_size]
-            batch_ids = ids[i:i + batch_size]
-            batch_metadata = metadata_list[i:i + batch_size]
+        for i in tqdm(range(0, len(datas), batch_size), desc="Indexing batches"):
+            batch_datas = datas[i:i + batch_size]
             
             # Generate embeddings for the batch
+            batch_texts = [f"{data['title']} {data['abstract']}" for data in batch_datas]
             embeddings = self.model.encode(batch_texts)
             
             # Prepare bulk indexing operations
             operations = []
-            for j, (text, embedding, doc_id, metadata) in enumerate(zip(batch_texts, embeddings, batch_ids, batch_metadata)):
+            for j, (data, embedding) in enumerate(zip(batch_datas, embeddings)):
                 # Add index action
                 action = {"index": {"_index": self.index_name}}
-                if doc_id:
-                    action["index"]["_id"] = doc_id
+                if data["paperId"]:
+                    action["index"]["_id"] = data["paperId"]
                 
                 operations.append(action)
+
+                metadata = {
+                    "paperId": data["paperId"],
+                    "title": data["title"],
+                    "abstract": data["abstract"],
+                    "url": data["url"],
+                    "year": data["year"],
+                    "authors": data["authors"],
+                }
                 
                 # Add document source
                 doc = {
-                    "text": text,
+                    "text": data["title"],
                     "embedding": embedding.tolist(),
                     "metadata": metadata
                 }
@@ -144,61 +144,12 @@ class TextEmbeddingIndexer:
                 doc_ids.append(item["index"]["_id"])
         
         return doc_ids
-    
-    def search_similar(self, query_text, top_k=5):
-        """
-        Search for documents similar to the query text.
-        
-        Args:
-            query_text (str): Query text
-            top_k (int): Number of results to return
-            
-        Returns:
-            list: List of similar documents with scores
-        """
-        # Generate embedding for the query
-        query_embedding = self.generate_embedding(query_text)
-        
-        # Prepare the search query
-        search_query = {
-            "knn": {
-                "field": "embedding",
-                "query_vector": query_embedding.tolist(),
-                "k": top_k,
-                "num_candidates": top_k * 2
-            },
-            "_source": ["text", "metadata"]
-        }
-        
-        # Execute the search
-        response = self.es.search(
-            index=self.index_name,
-            body=search_query
-        )
-        
-        # Extract results
-        results = []
-        for hit in response["hits"]["hits"]:
-            results.append({
-                "id": hit["_id"],
-                "score": hit["_score"],
-                "text": hit["_source"]["text"],
-                "metadata": hit["_source"]["metadata"]
-            })
-        
-        return results
-
 
 # Example usage
 if __name__ == "__main__":
-    # Sample texts
-    sample_texts = [
-        "Elasticsearch is a distributed, RESTful search and analytics engine.",
-        "Python is a programming language that lets you work quickly and integrate systems effectively.",
-        "Natural Language Processing (NLP) is a field of AI that gives machines the ability to read and understand human language.",
-        "Vector embeddings are numerical representations of words or documents in a continuous vector space.",
-        "Docker is a platform for developing, shipping, and running applications in containers."
-    ]
+    with open("data.json") as f:
+        datas = json.load(f)
+    datas = datas["data"]
     
     # Initialize the indexer
     indexer = TextEmbeddingIndexer()
@@ -206,24 +157,8 @@ if __name__ == "__main__":
     # Create the index
     indexer.create_index()
     
-    # Index the sample texts
-    print("Indexing sample texts...")
-    doc_ids = indexer.bulk_index(
-        texts=sample_texts,
-        metadata_list=[{"source": "example", "category": f"category_{i}"} for i in range(len(sample_texts))]
-    )
+    # Index the semantic scholar datas
+    print("Indexing semantic scholar datas...")
+    doc_ids = indexer.bulk_index(datas)
     
     print(f"Indexed {len(doc_ids)} documents")
-    
-    # Search for similar documents
-    query = "AI and machine learning technologies"
-    print(f"\nSearching for documents similar to: '{query}'")
-    
-    results = indexer.search_similar(query)
-    
-    print("\nSearch results:")
-    for i, result in enumerate(results):
-        print(f"{i+1}. Score: {result['score']:.4f}")
-        print(f"   Text: {result['text']}")
-        print(f"   Metadata: {json.dumps(result['metadata'])}")
-        print()
