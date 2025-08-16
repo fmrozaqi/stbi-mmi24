@@ -15,7 +15,6 @@ class TextEmbeddingIndexer:
         """
         self.es_host = es_host
         self.index_name = index_name
-        self.model = SentenceTransformer(model_name)
         self.es = Elasticsearch(es_host)
         
     def create_index(self):
@@ -40,8 +39,10 @@ class TextEmbeddingIndexer:
             # Create the index
             self.es.indices.create(index=self.index_name, body=mapping)
             print(f"Created index '{self.index_name}'")
+            return False
         else:
             print(f"Index '{self.index_name}' already exists")
+            return True
     
     def generate_embedding(self, text):
         """
@@ -98,6 +99,7 @@ class TextEmbeddingIndexer:
         Returns:
             list: List of document IDs
         """
+        self.model = SentenceTransformer(model_name)
         doc_ids = []
         
         # Process in batches to avoid memory issues with large datasets
@@ -155,10 +157,12 @@ if __name__ == "__main__":
     indexer = TextEmbeddingIndexer()
     
     # Create the index
-    indexer.create_index()
+    is_exist = indexer.create_index()
+    if not is_exist:
+        # Index the semantic scholar datas
+        print("Indexing semantic scholar datas...")
+        doc_ids = indexer.bulk_index(datas)
     
-    # Index the semantic scholar datas
-    print("Indexing semantic scholar datas...")
-    doc_ids = indexer.bulk_index(datas)
-    
-    print(f"Indexed {len(doc_ids)} documents")
+        print(f"Indexed {len(doc_ids)} documents")
+    else:
+        print("Index already exists")
